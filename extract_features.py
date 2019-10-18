@@ -39,6 +39,10 @@ flags.DEFINE_string("output_file", None, "")
 flags.DEFINE_string("layers", "-1,-2,-3,-4", "")
 
 flags.DEFINE_string(
+    "bert_base_dir", None,
+    "base directory of model")
+
+flags.DEFINE_string(
     "bert_config_file", None,
     "The config json file corresponding to the pre-trained BERT model. "
     "This specifies the model architecture.")
@@ -161,74 +165,134 @@ def input_fn_builder(features, seq_length):
   return input_fn
 
 
-def model_fn_builder(bert_config, init_checkpoint, layer_indexes, use_tpu,
-                     use_one_hot_embeddings):
-  """Returns `model_fn` closure for TPUEstimator."""
+def model_fn_builder(
+        bert_config,
+        init_checkpoint,
+        layer_indexes,
+        use_tpu,
+        use_one_hot_embeddings):
+    """Returns `model_fn` closure for TPUEstimator."""
 
-  def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
-    """The `model_fn` for TPUEstimator."""
+    def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
+        """The `model_fn` for TPUEstimator."""
 
-    unique_ids = features["unique_ids"]
-    input_ids = features["input_ids"]
-    input_mask = features["input_mask"]
-    input_type_ids = features["input_type_ids"]
+        model = modeling.BertModel(
+            config=                 bert_config,
+            is_training=            False,
+            input_ids=              features['input_ids'],
+            input_mask=             features['input_mask'],
+            token_type_ids=         features['input_type_ids'],
+            use_one_hot_embeddings= use_one_hot_embeddings)
 
-    model = modeling.BertModel(
-        config=bert_config,
-        is_training=False,
-        input_ids=input_ids,
-        input_mask=input_mask,
-        token_type_ids=input_type_ids,
-        use_one_hot_embeddings=use_one_hot_embeddings)
+        if mode != tf.estimator.ModeKeys.PREDICT: raise ValueError("Only PREDICT modes are supported: %s" % (mode))
 
-    if mode != tf.estimator.ModeKeys.PREDICT:
-      raise ValueError("Only PREDICT modes are supported: %s" % (mode))
+        tvars = tf.trainable_variables()
+        scaffold_fn = None
+        (assignment_map,
+         initialized_variable_names) = modeling.get_assignment_map_from_checkpoint(
+            tvars, init_checkpoint)
+        if use_tpu:
 
-    tvars = tf.trainable_variables()
-    scaffold_fn = None
-    (assignment_map,
-     initialized_variable_names) = modeling.get_assignment_map_from_checkpoint(
-         tvars, init_checkpoint)
-    if use_tpu:
+            def tpu_scaffold():
+                tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
+                return tf.train.Scaffold()
 
-      def tpu_scaffold():
-        tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
-        return tf.train.Scaffold()
+            scaffold_fn = tpu_scaffold
+        else:
+            tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
 
-      scaffold_fn = tpu_scaffold
-    else:
-      tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
+        tf.logging.info("**** Trainable Variables ****")
+        for var in tvars:
+            init_string = ""
+            if var.name in initialized_variable_names:
+                init_string = ", *INIT_FROM_CKPT*"
+            tf.logging.info("  name = %s, shape = %s%s", var.name, var.shape,
+                            init_string)
 
-    tf.logging.info("**** Trainable Variables ****")
-    for var in tvars:
-      init_string = ""
-      if var.name in initialized_variable_names:
-        init_string = ", *INIT_FROM_CKPT*"
-      tf.logging.info("  name = %s, shape = %s%s", var.name, var.shape,
-                      init_string)
+        all_layers = model.get_all_encoder_layers()
 
-    all_layers = model.get_all_encoder_layers()
+        predictions = {"unique_id": features["unique_ids"]}
 
-    predictions = {
-        "unique_id": unique_ids,
-    }
+        for (i, layer_index) in enumerate(layer_indexes):
+            predictions["layer_output_%d" % i] = all_layers[layer_index]
 
-    for (i, layer_index) in enumerate(layer_indexes):
-      predictions["layer_output_%d" % i] = all_layers[layer_index]
+        output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+            mode=           mode,
+            predictions=    predictions,
+            scaffold_fn=    scaffold_fn)
+        return output_spec
 
-    output_spec = tf.contrib.tpu.TPUEstimatorSpec(
-        mode=mode, predictions=predictions, scaffold_fn=scaffold_fn)
-    return output_spec
-
-  return model_fn
+    return model_fn
 
 
 def convert_examples_to_features(
-        examples :list,
-        seq_length :int,
-        tokenizer):
+        examples :list, # list of InputExample
+        tokenizer,
+        fitTo=      None):
     """converts list of examples to list of `InputBatch`s."""
 
+    tokA = []
+    tokB = []
+    maxLen = 0 # counts max len of tokens with separators ([CLS],[SEP],[SEP])
+    for ex in examples:
+        tA = tokenizer.tokenize(ex.text_a)
+        cLen = len(tA) + 2
+        tokA.append(tA)
+        if ex.text_b:
+            tB = tokenizer.tokenize(ex.text_b)
+            cLen += len(tB) + 1
+            tokB.append(tB)
+        else: tokB.append(None)
+        if cLen > maxLen: maxLen = cLen
+
+    if fitTo:
+        maxLen = 0
+        for ix in range(len(tokA)):
+            tA = tokA[ix]
+            tB = tokB[ix]
+            bothLen = len(tA) + 2
+            divBy = 1
+            if tB:
+                bothLen += len(tB) + 1
+                divBy = 2
+            cLen = bothLen
+            if bothLen > fitTo:
+                nPads = 3 if divBy==2 else 2
+                singleLen = int((fitTo-nPads)/divBy)
+                tokA[ix] = tA[:singleLen]
+                cLen = len(tokA[ix]) + 2
+                if tB:
+                    tokB[ix] = tB[:singleLen]
+                    cLen += len(tokB[ix]) + 1
+            if cLen > maxLen: maxLen = cLen
+
+    uidL = []
+    tokL = []
+    idsL = []
+    mskL = []
+    typL = []
+    for ix in range(len(tokA)):
+        tokens =            ['[CLS]']   + tokA[ix]          + ['[SEP]']
+        input_type_ids =    [0]         + [0]*len(tokA[ix]) + [0]
+        if tokB[ix]:
+            tokens +=                   tokB[ix]            + ['[SEP]']
+            input_type_ids +=           [1] * len(tokB[ix]) + [1]
+
+        input_ids = tokenizer.convert_tokens_to_ids(tokens)
+        input_mask = [1] * len(input_ids)
+
+        diff = maxLen-len(input_ids)
+        input_ids += [0]*diff
+        input_type_ids += [0]*diff
+        input_mask += [0]*diff
+
+        uidL.append(examples[ix].unique_id)
+        tokL.append(tokens)
+        idsL.append(input_ids)
+        mskL.append(input_mask)
+        typL.append(input_type_ids)
+
+    """
     uidL = []
     tokL = []
     idsL = []
@@ -236,8 +300,8 @@ def convert_examples_to_features(
     typL = []
     for (ex_index, example) in enumerate(examples):
         tokens_a = tokenizer.tokenize(example.text_a)
-        print(len(tokens_a))
-        print(tokens_a)
+        #print(len(tokens_a))
+        #print(tokens_a)
 
         tokens_b = None
         if example.text_b:
@@ -298,14 +362,15 @@ def convert_examples_to_features(
         # Zero-pad up to the sequence length.
         while len(input_ids) < seq_length:
             input_ids.append(0)
-            input_mask.append(0)
             input_type_ids.append(0)
+            input_mask.append(0)
+
 
         assert len(input_ids) == seq_length
         assert len(input_mask) == seq_length
         assert len(input_type_ids) == seq_length
 
-        """
+        
         if ex_index < 5:
             tf.logging.info("*** Example ***")
             tf.logging.info("unique_id: %s" % (example.unique_id))
@@ -315,13 +380,13 @@ def convert_examples_to_features(
             tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
             tf.logging.info(
                 "input_type_ids: %s" % " ".join([str(x) for x in input_type_ids]))
-        """
 
         uidL.append(example.unique_id)
         tokL.append(tokens)
         idsL.append(input_ids)
         mskL.append(input_mask)
         typL.append(input_type_ids)
+    """
 
     features = [InputFeatures(*smpl) for smpl in zip(uidL,tokL,idsL,mskL,typL)]
     return features
@@ -381,17 +446,27 @@ def extract(
         textA=      None,
         textB=      None,
         file=       None,
-        layersIX=   (-1,-2,-3,-4)):
+        layersIX=   (-1,-2,-3,-4),
+        fitSeqLen=  True): # adjusts FLAGS.max_seq_length to max num of tokens @data
     """extracts BERT features"""
     tf.logging.set_verbosity(tf.logging.ERROR)
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
+    FLAGS.vocab_file = FLAGS.bert_base_dir + '/vocab.txt'
+    FLAGS.bert_config_file = FLAGS.bert_base_dir + '/bert_config.json'
+    FLAGS.init_checkpoint = FLAGS.bert_base_dir + '/bert_model.ckpt'
+
+    # prepare input data
     if file: examples = read_examples(file)
     else: examples = getExamples(textA,textB)
+    tokenizer = tokenization.FullTokenizer(vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
+    features = convert_examples_to_features(
+        examples=       examples,
+        tokenizer=      tokenizer,
+        fitTo=          FLAGS.max_seq_length if not fitSeqLen else None)
+    if fitSeqLen: FLAGS.max_seq_length = len(features[0].input_ids)
 
     bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file) ## returns config object
-
-    tokenizer = tokenization.FullTokenizer(vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
 
     is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
     run_config = tf.contrib.tpu.RunConfig(
@@ -399,8 +474,6 @@ def extract(
         tpu_config= tf.contrib.tpu.TPUConfig(
             num_shards=                     FLAGS.num_tpu_cores,
             per_host_input_for_training=    is_per_host))
-
-    features = convert_examples_to_features(examples=examples, seq_length=FLAGS.max_seq_length, tokenizer=tokenizer)
 
     model_fn = model_fn_builder(
         bert_config=            bert_config,
@@ -420,22 +493,21 @@ def extract(
         features=               features,
         seq_length=             FLAGS.max_seq_length)
 
-    results = [result for result in estimator.predict(input_fn, yield_single_examples=True)]
-    return results
+    resGO = estimator.predict( # predict returns generator object
+        input_fn=               input_fn,
+        yield_single_examples=  True)
+    return [result for result in resGO]
 
 
 if __name__ == "__main__":
 
-    BERT_BASE_DIR = '_models/cased_L-12_H-768_A-12'
+    FLAGS.bert_base_dir = '_models/cased_L-12_H-768_A-12'
     FLAGS.do_lower_case = False
-
-    FLAGS.vocab_file = BERT_BASE_DIR + '/vocab.txt'
-    FLAGS.bert_config_file = BERT_BASE_DIR + '/bert_config.json'
-    FLAGS.init_checkpoint = BERT_BASE_DIR + '/bert_model.ckpt'
+    FLAGS.max_seq_length = 64
 
     textA = [
         'It is my name.',
-        'My competence just starts!']
+        'My competence.']
     results = extract(textA=textA)
 
     print(len(results))
