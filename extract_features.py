@@ -21,7 +21,6 @@ from __future__ import print_function
 import codecs
 import collections
 import json
-import os
 import re
 
 import modeling
@@ -37,10 +36,6 @@ flags.DEFINE_string("input_file", None, "")
 flags.DEFINE_string("output_file", None, "")
 
 flags.DEFINE_string("layers", "-1,-2,-3,-4", "")
-
-flags.DEFINE_string(
-    "bert_base_dir", None,
-    "base directory of model")
 
 flags.DEFINE_string(
     "bert_config_file", None,
@@ -83,31 +78,16 @@ flags.DEFINE_bool(
     "since it is much faster.")
 
 
-# single input example object
 class InputExample(object):
-    """a single InputExample"""
 
-    def __init__(self, unique_id, text_a, text_b):
-        self.unique_id = unique_id
-        self.text_a = text_a
-        self.text_b = text_b
-
-
-class ExamplesBuilder:
-    """builder of InputExample"""
-
-    def __init__(self):
-        self.id = 0
-
-    # creates new example object
-    def addIE(self, text_a, text_b):
-        example = InputExample(self.id, text_a, text_b)
-        self.id += 1
-        return example
+  def __init__(self, unique_id, text_a, text_b):
+    self.unique_id = unique_id
+    self.text_a = text_a
+    self.text_b = text_b
 
 
 class InputFeatures(object):
-  """a single set of features of data"""
+  """A single set of features of data."""
 
   def __init__(self, unique_id, tokens, input_ids, input_mask, input_type_ids):
     self.unique_id = unique_id
@@ -165,231 +145,158 @@ def input_fn_builder(features, seq_length):
   return input_fn
 
 
-def model_fn_builder(
-        bert_config,
-        init_checkpoint,
-        layer_indexes,
-        use_tpu,
-        use_one_hot_embeddings):
-    """Returns `model_fn` closure for TPUEstimator."""
+def model_fn_builder(bert_config, init_checkpoint, layer_indexes, use_tpu,
+                     use_one_hot_embeddings):
+  """Returns `model_fn` closure for TPUEstimator."""
 
-    def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
-        """The `model_fn` for TPUEstimator."""
+  def model_fn(features, labels, mode, params):  # pylint: disable=unused-argument
+    """The `model_fn` for TPUEstimator."""
 
-        model = modeling.BertModel(
-            config=                 bert_config,
-            is_training=            False,
-            input_ids=              features['input_ids'],
-            input_mask=             features['input_mask'],
-            token_type_ids=         features['input_type_ids'],
-            use_one_hot_embeddings= use_one_hot_embeddings)
+    unique_ids = features["unique_ids"]
+    input_ids = features["input_ids"]
+    input_mask = features["input_mask"]
+    input_type_ids = features["input_type_ids"]
 
-        if mode != tf.estimator.ModeKeys.PREDICT: raise ValueError("Only PREDICT modes are supported: %s" % (mode))
+    model = modeling.BertModel(
+        config=bert_config,
+        is_training=False,
+        input_ids=input_ids,
+        input_mask=input_mask,
+        token_type_ids=input_type_ids,
+        use_one_hot_embeddings=use_one_hot_embeddings)
 
-        tvars = tf.trainable_variables()
-        scaffold_fn = None
-        (assignment_map,
-         initialized_variable_names) = modeling.get_assignment_map_from_checkpoint(
-            tvars, init_checkpoint)
-        if use_tpu:
+    if mode != tf.estimator.ModeKeys.PREDICT:
+      raise ValueError("Only PREDICT modes are supported: %s" % (mode))
 
-            def tpu_scaffold():
-                tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
-                return tf.train.Scaffold()
+    tvars = tf.trainable_variables()
+    scaffold_fn = None
+    (assignment_map,
+     initialized_variable_names) = modeling.get_assignment_map_from_checkpoint(
+         tvars, init_checkpoint)
+    if use_tpu:
 
-            scaffold_fn = tpu_scaffold
-        else:
-            tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
+      def tpu_scaffold():
+        tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
+        return tf.train.Scaffold()
 
-        tf.logging.info("**** Trainable Variables ****")
-        for var in tvars:
-            init_string = ""
-            if var.name in initialized_variable_names:
-                init_string = ", *INIT_FROM_CKPT*"
-            tf.logging.info("  name = %s, shape = %s%s", var.name, var.shape,
-                            init_string)
+      scaffold_fn = tpu_scaffold
+    else:
+      tf.train.init_from_checkpoint(init_checkpoint, assignment_map)
 
-        all_layers = model.get_all_encoder_layers()
+    tf.logging.info("**** Trainable Variables ****")
+    for var in tvars:
+      init_string = ""
+      if var.name in initialized_variable_names:
+        init_string = ", *INIT_FROM_CKPT*"
+      tf.logging.info("  name = %s, shape = %s%s", var.name, var.shape,
+                      init_string)
 
-        predictions = {"unique_id": features["unique_ids"]}
+    all_layers = model.get_all_encoder_layers()
 
-        for (i, layer_index) in enumerate(layer_indexes):
-            predictions["layer_output_%d" % i] = all_layers[layer_index]
+    predictions = {
+        "unique_id": unique_ids,
+    }
 
-        output_spec = tf.contrib.tpu.TPUEstimatorSpec(
-            mode=           mode,
-            predictions=    predictions,
-            scaffold_fn=    scaffold_fn)
-        return output_spec
+    for (i, layer_index) in enumerate(layer_indexes):
+      predictions["layer_output_%d" % i] = all_layers[layer_index]
 
-    return model_fn
+    output_spec = tf.contrib.tpu.TPUEstimatorSpec(
+        mode=mode, predictions=predictions, scaffold_fn=scaffold_fn)
+    return output_spec
 
-
-def convert_examples_to_features(
-        examples :list, # list of InputExample
-        tokenizer,
-        fitTo=      None):
-    """converts list of examples to list of `InputBatch`s."""
-
-    tokA = []
-    tokB = []
-    maxLen = 0 # counts max len of tokens with separators ([CLS],[SEP],[SEP])
-    for ex in examples:
-        tA = tokenizer.tokenize(ex.text_a)
-        cLen = len(tA) + 2
-        tokA.append(tA)
-        if ex.text_b:
-            tB = tokenizer.tokenize(ex.text_b)
-            cLen += len(tB) + 1
-            tokB.append(tB)
-        else: tokB.append(None)
-        if cLen > maxLen: maxLen = cLen
-
-    if fitTo:
-        maxLen = 0
-        for ix in range(len(tokA)):
-            tA = tokA[ix]
-            tB = tokB[ix]
-            bothLen = len(tA) + 2
-            divBy = 1
-            if tB:
-                bothLen += len(tB) + 1
-                divBy = 2
-            cLen = bothLen
-            if bothLen > fitTo:
-                nPads = 3 if divBy==2 else 2
-                singleLen = int((fitTo-nPads)/divBy)
-                tokA[ix] = tA[:singleLen]
-                cLen = len(tokA[ix]) + 2
-                if tB:
-                    tokB[ix] = tB[:singleLen]
-                    cLen += len(tokB[ix]) + 1
-            if cLen > maxLen: maxLen = cLen
-
-    uidL = []
-    tokL = []
-    idsL = []
-    mskL = []
-    typL = []
-    for ix in range(len(tokA)):
-        tokens =            ['[CLS]']   + tokA[ix]          + ['[SEP]']
-        input_type_ids =    [0]         + [0]*len(tokA[ix]) + [0]
-        if tokB[ix]:
-            tokens +=                   tokB[ix]            + ['[SEP]']
-            input_type_ids +=           [1] * len(tokB[ix]) + [1]
-
-        input_ids = tokenizer.convert_tokens_to_ids(tokens)
-        input_mask = [1] * len(input_ids)
-
-        diff = maxLen-len(input_ids)
-        input_ids += [0]*diff
-        input_type_ids += [0]*diff
-        input_mask += [0]*diff
-
-        uidL.append(examples[ix].unique_id)
-        tokL.append(tokens)
-        idsL.append(input_ids)
-        mskL.append(input_mask)
-        typL.append(input_type_ids)
-
-    """
-    uidL = []
-    tokL = []
-    idsL = []
-    mskL = []
-    typL = []
-    for (ex_index, example) in enumerate(examples):
-        tokens_a = tokenizer.tokenize(example.text_a)
-        #print(len(tokens_a))
-        #print(tokens_a)
-
-        tokens_b = None
-        if example.text_b:
-            tokens_b = tokenizer.tokenize(example.text_b)
-
-        if tokens_b:
-            # Modifies `tokens_a` and `tokens_b` in place so that the total
-            # length is less than the specified length.
-            # Account for [CLS], [SEP], [SEP] with "- 3"
-            _truncate_seq_pair(tokens_a, tokens_b, seq_length - 3)
-        else:
-            # Account for [CLS] and [SEP] with "- 2"
-            if len(tokens_a) > seq_length - 2:
-                tokens_a = tokens_a[0:(seq_length - 2)]
-
-        # The convention in BERT is:
-        # (a) For sequence pairs:
-        #  tokens:   [CLS] is this jack ##son ##ville ? [SEP] no it is not . [SEP]
-        #  type_ids: 0     0  0    0    0     0       0 0     1  1  1  1   1 1
-        # (b) For single sequences:
-        #  tokens:   [CLS] the dog is hairy . [SEP]
-        #  type_ids: 0     0   0   0  0     0 0
-        #
-        # Where "type_ids" are used to indicate whether this is the first
-        # sequence or the second sequence. The embedding vectors for `type=0` and
-        # `type=1` were learned during pre-training and are added to the wordpiece
-        # embedding vector (and position vector). This is not *strictly* necessary
-        # since the [SEP] token unambiguously separates the sequences, but it makes
-        # it easier for the model to learn the concept of sequences.
-        #
-        # For classification tasks, the first vector (corresponding to [CLS]) is
-        # used as as the "sentence vector". Note that this only makes sense because
-        # the entire model is fine-tuned.
-        tokens = []
-        input_type_ids = []
-        tokens.append("[CLS]")
-        input_type_ids.append(0)
-        for token in tokens_a:
-            tokens.append(token)
-            input_type_ids.append(0)
-        tokens.append("[SEP]")
-        input_type_ids.append(0)
-
-        if tokens_b:
-            for token in tokens_b:
-                tokens.append(token)
-                input_type_ids.append(1)
-            tokens.append("[SEP]")
-            input_type_ids.append(1)
-
-        input_ids = tokenizer.convert_tokens_to_ids(tokens)
-
-        # The mask has 1 for real tokens and 0 for padding tokens. Only real
-        # tokens are attended to.
-        input_mask = [1] * len(input_ids)
+  return model_fn
 
 
-        # Zero-pad up to the sequence length.
-        while len(input_ids) < seq_length:
-            input_ids.append(0)
-            input_type_ids.append(0)
-            input_mask.append(0)
+def convert_examples_to_features(examples, seq_length, tokenizer):
+  """Loads a data file into a list of `InputBatch`s."""
 
+  features = []
+  for (ex_index, example) in enumerate(examples):
+    tokens_a = tokenizer.tokenize(example.text_a)
 
-        assert len(input_ids) == seq_length
-        assert len(input_mask) == seq_length
-        assert len(input_type_ids) == seq_length
+    tokens_b = None
+    if example.text_b:
+      tokens_b = tokenizer.tokenize(example.text_b)
 
-        
-        if ex_index < 5:
-            tf.logging.info("*** Example ***")
-            tf.logging.info("unique_id: %s" % (example.unique_id))
-            tf.logging.info("tokens: %s" % " ".join(
-                [tokenization.printable_text(x) for x in tokens]))
-            tf.logging.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
-            tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
-            tf.logging.info(
-                "input_type_ids: %s" % " ".join([str(x) for x in input_type_ids]))
+    if tokens_b:
+      # Modifies `tokens_a` and `tokens_b` in place so that the total
+      # length is less than the specified length.
+      # Account for [CLS], [SEP], [SEP] with "- 3"
+      _truncate_seq_pair(tokens_a, tokens_b, seq_length - 3)
+    else:
+      # Account for [CLS] and [SEP] with "- 2"
+      if len(tokens_a) > seq_length - 2:
+        tokens_a = tokens_a[0:(seq_length - 2)]
 
-        uidL.append(example.unique_id)
-        tokL.append(tokens)
-        idsL.append(input_ids)
-        mskL.append(input_mask)
-        typL.append(input_type_ids)
-    """
+    # The convention in BERT is:
+    # (a) For sequence pairs:
+    #  tokens:   [CLS] is this jack ##son ##ville ? [SEP] no it is not . [SEP]
+    #  type_ids: 0     0  0    0    0     0       0 0     1  1  1  1   1 1
+    # (b) For single sequences:
+    #  tokens:   [CLS] the dog is hairy . [SEP]
+    #  type_ids: 0     0   0   0  0     0 0
+    #
+    # Where "type_ids" are used to indicate whether this is the first
+    # sequence or the second sequence. The embedding vectors for `type=0` and
+    # `type=1` were learned during pre-training and are added to the wordpiece
+    # embedding vector (and position vector). This is not *strictly* necessary
+    # since the [SEP] token unambiguously separates the sequences, but it makes
+    # it easier for the model to learn the concept of sequences.
+    #
+    # For classification tasks, the first vector (corresponding to [CLS]) is
+    # used as as the "sentence vector". Note that this only makes sense because
+    # the entire model is fine-tuned.
+    tokens = []
+    input_type_ids = []
+    tokens.append("[CLS]")
+    input_type_ids.append(0)
+    for token in tokens_a:
+      tokens.append(token)
+      input_type_ids.append(0)
+    tokens.append("[SEP]")
+    input_type_ids.append(0)
 
-    features = [InputFeatures(*smpl) for smpl in zip(uidL,tokL,idsL,mskL,typL)]
-    return features
+    if tokens_b:
+      for token in tokens_b:
+        tokens.append(token)
+        input_type_ids.append(1)
+      tokens.append("[SEP]")
+      input_type_ids.append(1)
+
+    input_ids = tokenizer.convert_tokens_to_ids(tokens)
+
+    # The mask has 1 for real tokens and 0 for padding tokens. Only real
+    # tokens are attended to.
+    input_mask = [1] * len(input_ids)
+
+    # Zero-pad up to the sequence length.
+    while len(input_ids) < seq_length:
+      input_ids.append(0)
+      input_mask.append(0)
+      input_type_ids.append(0)
+
+    assert len(input_ids) == seq_length
+    assert len(input_mask) == seq_length
+    assert len(input_type_ids) == seq_length
+
+    if ex_index < 5:
+      tf.logging.info("*** Example ***")
+      tf.logging.info("unique_id: %s" % (example.unique_id))
+      tf.logging.info("tokens: %s" % " ".join(
+          [tokenization.printable_text(x) for x in tokens]))
+      tf.logging.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
+      tf.logging.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
+      tf.logging.info(
+          "input_type_ids: %s" % " ".join([str(x) for x in input_type_ids]))
+
+    features.append(
+        InputFeatures(
+            unique_id=example.unique_id,
+            tokens=tokens,
+            input_ids=input_ids,
+            input_mask=input_mask,
+            input_type_ids=input_type_ids))
+  return features
 
 
 def _truncate_seq_pair(tokens_a, tokens_b, max_length):
@@ -410,107 +317,103 @@ def _truncate_seq_pair(tokens_a, tokens_b, max_length):
 
 
 def read_examples(input_file):
-    """Read a list of `InputExample`s from an input file."""
-    textA = []
-    textB = []
-    with tf.gfile.GFile(input_file, "r") as reader:
-        while True:
-            line = tokenization.convert_to_unicode(reader.readline())
-            if not line: break
-            line = line.strip()
-            text_a = line
-            text_b = None
-            m = re.match(r"^(.*) \|\|\| (.*)$", line)
-            if m is not None:
-                text_a = m.group(1)
-                text_b = m.group(2)
-            textA.append(text_a)
-            textB.append(text_b)
-    return getExamples(textA,textB)
+  """Read a list of `InputExample`s from an input file."""
+  examples = []
+  unique_id = 0
+  with tf.gfile.GFile(input_file, "r") as reader:
+    while True:
+      line = tokenization.convert_to_unicode(reader.readline())
+      if not line:
+        break
+      line = line.strip()
+      text_a = None
+      text_b = None
+      m = re.match(r"^(.*) \|\|\| (.*)$", line)
+      if m is None:
+        text_a = line
+      else:
+        text_a = m.group(1)
+        text_b = m.group(2)
+      examples.append(
+          InputExample(unique_id=unique_id, text_a=text_a, text_b=text_b))
+      unique_id += 1
+  return examples
 
 
-def getExamples(
-        textA :list,
-        textB :None or list):
-    """returns list of InputExample objects from list of texts"""
+def main(_):
+  tf.logging.set_verbosity(tf.logging.INFO)
 
-    if textB is None: textB = [None]*len(textA)
-    examples = []
-    exBuilder = ExamplesBuilder()
-    for texts in zip(textA,textB):
-        examples.append(exBuilder.addIE(*texts))
-    return examples
+  layer_indexes = [int(x) for x in FLAGS.layers.split(",")]
 
+  bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file)
 
-def extract(
-        textA=      None,
-        textB=      None,
-        file=       None,
-        layersIX=   (-1,-2,-3,-4),
-        fitSeqLen=  True): # adjusts FLAGS.max_seq_length to max num of tokens @data
-    """extracts BERT features"""
-    tf.logging.set_verbosity(tf.logging.ERROR)
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+  tokenizer = tokenization.FullTokenizer(
+      vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
 
-    FLAGS.vocab_file = FLAGS.bert_base_dir + '/vocab.txt'
-    FLAGS.bert_config_file = FLAGS.bert_base_dir + '/bert_config.json'
-    FLAGS.init_checkpoint = FLAGS.bert_base_dir + '/bert_model.ckpt'
+  is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
+  run_config = tf.contrib.tpu.RunConfig(
+      master=FLAGS.master,
+      tpu_config=tf.contrib.tpu.TPUConfig(
+          num_shards=FLAGS.num_tpu_cores,
+          per_host_input_for_training=is_per_host))
 
-    # prepare input data
-    if file: examples = read_examples(file)
-    else: examples = getExamples(textA,textB)
-    tokenizer = tokenization.FullTokenizer(vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
-    features = convert_examples_to_features(
-        examples=       examples,
-        tokenizer=      tokenizer,
-        fitTo=          FLAGS.max_seq_length if not fitSeqLen else None)
-    if fitSeqLen: FLAGS.max_seq_length = len(features[0].input_ids)
+  examples = read_examples(FLAGS.input_file)
 
-    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file) ## returns config object
+  features = convert_examples_to_features(
+      examples=examples, seq_length=FLAGS.max_seq_length, tokenizer=tokenizer)
 
-    is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
-    run_config = tf.contrib.tpu.RunConfig(
-        master=     FLAGS.master,
-        tpu_config= tf.contrib.tpu.TPUConfig(
-            num_shards=                     FLAGS.num_tpu_cores,
-            per_host_input_for_training=    is_per_host))
+  unique_id_to_feature = {}
+  for feature in features:
+    unique_id_to_feature[feature.unique_id] = feature
 
-    model_fn = model_fn_builder(
-        bert_config=            bert_config,
-        init_checkpoint=        FLAGS.init_checkpoint,
-        layer_indexes=          layersIX,
-        use_tpu=                FLAGS.use_tpu,
-        use_one_hot_embeddings= FLAGS.use_one_hot_embeddings)
+  model_fn = model_fn_builder(
+      bert_config=bert_config,
+      init_checkpoint=FLAGS.init_checkpoint,
+      layer_indexes=layer_indexes,
+      use_tpu=FLAGS.use_tpu,
+      use_one_hot_embeddings=FLAGS.use_one_hot_embeddings)
 
-    # If TPU is not available, this will fall back to normal Estimator on CPU or GPU.
-    estimator = tf.contrib.tpu.TPUEstimator(
-        use_tpu=                FLAGS.use_tpu,
-        model_fn=               model_fn,
-        config=                 run_config,
-        predict_batch_size=     FLAGS.batch_size)
+  # If TPU is not available, this will fall back to normal Estimator on CPU
+  # or GPU.
+  estimator = tf.contrib.tpu.TPUEstimator(
+      use_tpu=FLAGS.use_tpu,
+      model_fn=model_fn,
+      config=run_config,
+      predict_batch_size=FLAGS.batch_size)
 
-    input_fn = input_fn_builder(
-        features=               features,
-        seq_length=             FLAGS.max_seq_length)
+  input_fn = input_fn_builder(
+      features=features, seq_length=FLAGS.max_seq_length)
 
-    resGO = estimator.predict( # predict returns generator object
-        input_fn=               input_fn,
-        yield_single_examples=  True)
-    return [result for result in resGO]
+  with codecs.getwriter("utf-8")(tf.gfile.Open(FLAGS.output_file,
+                                               "w")) as writer:
+    for result in estimator.predict(input_fn, yield_single_examples=True):
+      unique_id = int(result["unique_id"])
+      feature = unique_id_to_feature[unique_id]
+      output_json = collections.OrderedDict()
+      output_json["linex_index"] = unique_id
+      all_features = []
+      for (i, token) in enumerate(feature.tokens):
+        all_layers = []
+        for (j, layer_index) in enumerate(layer_indexes):
+          layer_output = result["layer_output_%d" % j]
+          layers = collections.OrderedDict()
+          layers["index"] = layer_index
+          layers["values"] = [
+              round(float(x), 6) for x in layer_output[i:(i + 1)].flat
+          ]
+          all_layers.append(layers)
+        features = collections.OrderedDict()
+        features["token"] = token
+        features["layers"] = all_layers
+        all_features.append(features)
+      output_json["features"] = all_features
+      writer.write(json.dumps(output_json) + "\n")
 
 
 if __name__ == "__main__":
-
-    FLAGS.bert_base_dir = '_models/cased_L-12_H-768_A-12'
-    FLAGS.do_lower_case = False
-    FLAGS.max_seq_length = 64
-
-    textA = [
-        'It is my name.',
-        'My competence.']
-    results = extract(textA=textA)
-
-    print(len(results))
-    for res in results:
-        print(res['layer_output_3'].shape)
-    print(results)
+  flags.mark_flag_as_required("input_file")
+  flags.mark_flag_as_required("vocab_file")
+  flags.mark_flag_as_required("bert_config_file")
+  flags.mark_flag_as_required("init_checkpoint")
+  flags.mark_flag_as_required("output_file")
+  tf.app.run()

@@ -27,7 +27,7 @@ import numpy as np
 import six
 import tensorflow as tf
 
-## configuration object, loads, prepares
+
 class BertConfig(object):
   """Configuration for `BertModel`."""
 
