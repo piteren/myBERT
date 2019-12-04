@@ -83,7 +83,7 @@ flags.DEFINE_bool(
     "since it is much faster.")
 
 
-# single input example object
+# single input example object (id and 2x text)
 class InputExample(object):
     """a single InputExample"""
 
@@ -92,7 +92,7 @@ class InputExample(object):
         self.text_a = text_a
         self.text_b = text_b
 
-
+# builds examples with proper counter (id)
 class ExamplesBuilder:
     """builder of InputExample"""
 
@@ -446,15 +446,8 @@ def extract(
         textA=      None,
         textB=      None,
         file=       None,
-        layersIX=   (-1,-2,-3,-4),
+        layersIX=   (-1,),
         fitSeqLen=  True): # adjusts FLAGS.max_seq_length to max num of tokens @data
-    """extracts BERT features"""
-    tf.logging.set_verbosity(tf.logging.ERROR)
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-
-    FLAGS.vocab_file = FLAGS.bert_base_dir + '/vocab.txt'
-    FLAGS.bert_config_file = FLAGS.bert_base_dir + '/bert_config.json'
-    FLAGS.init_checkpoint = FLAGS.bert_base_dir + '/bert_model.ckpt'
 
     # prepare input data
     if file: examples = read_examples(file)
@@ -480,7 +473,7 @@ def extract(
         init_checkpoint=        FLAGS.init_checkpoint,
         layer_indexes=          layersIX,
         use_tpu=                FLAGS.use_tpu,
-        use_one_hot_embeddings= FLAGS.use_one_hot_embeddings)
+        use_one_hot_embeddings= FLAGS.use_one_hot_embeddings) # by default False
 
     # If TPU is not available, this will fall back to normal Estimator on CPU or GPU.
     estimator = tf.contrib.tpu.TPUEstimator(
@@ -496,21 +489,31 @@ def extract(
     resGO = estimator.predict( # predict returns generator object
         input_fn=               input_fn,
         yield_single_examples=  True)
+
     return [result for result in resGO]
 
 
 if __name__ == "__main__":
 
-    FLAGS.bert_base_dir = '_models/cased_L-12_H-768_A-12'
-    FLAGS.do_lower_case = False
+    tf.logging.set_verbosity(tf.logging.ERROR)
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
+    FLAGS.bert_base_dir = '_models/uncased_L-12_H-768_A-12'
+    #FLAGS.bert_base_dir = '_models/wwm_uncased_L-24_H-1024_A-16'
+    FLAGS.vocab_file = FLAGS.bert_base_dir + '/vocab.txt'
+    FLAGS.bert_config_file = FLAGS.bert_base_dir + '/bert_config.json'
+    FLAGS.init_checkpoint = FLAGS.bert_base_dir + '/bert_model.ckpt'
+    FLAGS.do_lower_case = True
     FLAGS.max_seq_length = 64
 
-    textA = [
-        'It is my name.',
-        'My competence.']
-    results = extract(textA=textA)
+    textA = ['It is my name.','My competence.']
+    textB = ['What is your name, my lord?.','My precious lord.']
+    results = extract(
+        textA=      textA,
+        textB=      textB,
+    )
 
     print(len(results))
-    for res in results:
-        print(res['layer_output_3'].shape)
-    print(results)
+    print(results[0].keys())
+    layKey = [key for key in list(results[0].keys()) if 'layer' in key][0]
+    print(results[0][layKey].shape)
