@@ -449,6 +449,17 @@ def extract(
         layersIX=   (-1,),
         fitSeqLen=  True): # adjusts FLAGS.max_seq_length to max num of tokens @data
 
+    tf.logging.set_verbosity(tf.logging.ERROR)
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
+    FLAGS.bert_base_dir = '_models/uncased_L-12_H-768_A-12'
+    # FLAGS.bert_base_dir = '_models/wwm_uncased_L-24_H-1024_A-16'
+    FLAGS.vocab_file = FLAGS.bert_base_dir + '/vocab.txt'
+    FLAGS.bert_config_file = FLAGS.bert_base_dir + '/bert_config.json'
+    FLAGS.init_checkpoint = FLAGS.bert_base_dir + '/bert_model.ckpt'
+    FLAGS.do_lower_case = True
+    FLAGS.max_seq_length = 64
+
     # prepare input data
     if file: examples = read_examples(file)
     else: examples = getExamples(textA,textB)
@@ -494,17 +505,6 @@ def extract(
 
 
 if __name__ == "__main__":
-
-    tf.logging.set_verbosity(tf.logging.ERROR)
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-
-    FLAGS.bert_base_dir = '_models/uncased_L-12_H-768_A-12'
-    #FLAGS.bert_base_dir = '_models/wwm_uncased_L-24_H-1024_A-16'
-    FLAGS.vocab_file = FLAGS.bert_base_dir + '/vocab.txt'
-    FLAGS.bert_config_file = FLAGS.bert_base_dir + '/bert_config.json'
-    FLAGS.init_checkpoint = FLAGS.bert_base_dir + '/bert_model.ckpt'
-    FLAGS.do_lower_case = True
-    FLAGS.max_seq_length = 64
 
     textA = ['It is my name.','My competence.']
     textB = ['What is your name, my lord?.','My precious lord.']
