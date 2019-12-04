@@ -39,8 +39,12 @@ flags.DEFINE_string("output_file", None, "")
 flags.DEFINE_string("layers", "-1,-2,-3,-4", "")
 
 flags.DEFINE_string(
-    "bert_base_dir", None,
-    "base directory of model")
+    "models_dir", None,
+    "base directory of models")
+
+flags.DEFINE_string(
+    "bert_model_dir", None,
+    "directory of current bert model")
 
 flags.DEFINE_string(
     "bert_config_file", None,
@@ -447,16 +451,15 @@ def extract(
         textB=      None,
         file=       None,
         layersIX=   (-1,),
+        modelsDir=  '_models',
         fitSeqLen=  True): # adjusts FLAGS.max_seq_length to max num of tokens @data
 
-    tf.logging.set_verbosity(tf.logging.ERROR)
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-
-    FLAGS.bert_base_dir = '_models/uncased_L-12_H-768_A-12'
-    # FLAGS.bert_base_dir = '_models/wwm_uncased_L-24_H-1024_A-16'
-    FLAGS.vocab_file = FLAGS.bert_base_dir + '/vocab.txt'
-    FLAGS.bert_config_file = FLAGS.bert_base_dir + '/bert_config.json'
-    FLAGS.init_checkpoint = FLAGS.bert_base_dir + '/bert_model.ckpt'
+    FLAGS.models_dir = modelsDir
+    FLAGS.bert_model_dir = FLAGS.models_dir + '/uncased_L-12_H-768_A-12'
+    #FLAGS.bert_model_dir = FLAGS.models_dir + '/wwm_uncased_L-24_H-1024_A-16'
+    FLAGS.vocab_file = FLAGS.bert_model_dir + '/vocab.txt'
+    FLAGS.bert_config_file = FLAGS.bert_model_dir + '/bert_config.json'
+    FLAGS.init_checkpoint = FLAGS.bert_model_dir + '/bert_model.ckpt'
     FLAGS.do_lower_case = True
     FLAGS.max_seq_length = 64
 
@@ -505,6 +508,9 @@ def extract(
 
 
 if __name__ == "__main__":
+
+    tf.logging.set_verbosity(tf.logging.ERROR)
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
     textA = ['It is my name.','My competence.']
     textB = ['What is your name, my lord?.','My precious lord.']
