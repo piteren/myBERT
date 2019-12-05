@@ -228,16 +228,16 @@ def model_fn_builder(
 
     return model_fn
 
-
+# converts list of examples to list of `InputBatch`s.
 def convert_examples_to_features(
         examples :list, # list of InputExample
         tokenizer,
-        fitTo=      None):
-    """converts list of examples to list of `InputBatch`s."""
+        fitTo :None or int=     None): # trims examples if longer than, or pads if shorter, for None fits to maxLen
 
+    # tokenize examples and count maxLen
     tokA = []
     tokB = []
-    maxLen = 0 # counts max len of tokens with separators ([CLS],[SEP],[SEP])
+    maxLen = 0 # counts max len of tokens @examples including separators ([CLS],[SEP],[SEP])
     for ex in examples:
         tA = tokenizer.tokenize(ex.text_a)
         cLen = len(tA) + 2
@@ -249,8 +249,8 @@ def convert_examples_to_features(
         else: tokB.append(None)
         if cLen > maxLen: maxLen = cLen
 
+    # fits tokenized examples
     if fitTo:
-        maxLen = 0
         for ix in range(len(tokA)):
             tA = tokA[ix]
             tB = tokB[ix]
@@ -259,16 +259,14 @@ def convert_examples_to_features(
             if tB:
                 bothLen += len(tB) + 1
                 divBy = 2
-            cLen = bothLen
+            # trim
             if bothLen > fitTo:
                 nPads = 3 if divBy==2 else 2
                 singleLen = int((fitTo-nPads)/divBy)
                 tokA[ix] = tA[:singleLen]
-                cLen = len(tokA[ix]) + 2
                 if tB:
                     tokB[ix] = tB[:singleLen]
-                    cLen += len(tokB[ix]) + 1
-            if cLen > maxLen: maxLen = cLen
+        maxLen = fitTo # new maxLen
 
     uidL = []
     tokL = []
@@ -447,12 +445,12 @@ def getExamples(
 
 
 def extract(
-        textA=      None,
-        textB=      None,
-        file=       None,
-        layersIX=   (-1,),
-        modelsDir=  '_models',
-        fitSeqLen=  True): # adjusts FLAGS.max_seq_length to max num of tokens @data
+        textA=                  None,
+        textB=                  None,
+        file=                   None,
+        layersIX=               (-1,),
+        modelsDir=              '_models',
+        fitSeqLen :None or int= None): # fits tokens (also len of returned features) into given length
 
     FLAGS.models_dir = modelsDir
     FLAGS.bert_model_dir = FLAGS.models_dir + '/uncased_L-12_H-768_A-12'
@@ -461,7 +459,7 @@ def extract(
     FLAGS.bert_config_file = FLAGS.bert_model_dir + '/bert_config.json'
     FLAGS.init_checkpoint = FLAGS.bert_model_dir + '/bert_model.ckpt'
     FLAGS.do_lower_case = True
-    FLAGS.max_seq_length = 64
+    FLAGS.max_seq_length = fitSeqLen if fitSeqLen is not None else 64
 
     # prepare input data
     if file: examples = read_examples(file)
@@ -470,7 +468,7 @@ def extract(
     features = convert_examples_to_features(
         examples=       examples,
         tokenizer=      tokenizer,
-        fitTo=          FLAGS.max_seq_length if not fitSeqLen else None)
+        fitTo=          fitSeqLen)
     if fitSeqLen: FLAGS.max_seq_length = len(features[0].input_ids)
 
     bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file) ## returns config object
