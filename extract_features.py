@@ -230,9 +230,10 @@ def model_fn_builder(
 
 # converts list of examples to list of `InputBatch`s.
 def convert_examples_to_features(
-        examples :list, # list of InputExample
+        examples :list,                 # list of InputExample
         tokenizer,
-        fitTo :None or int=     None): # trims examples if longer than, or pads if shorter, for None fits to maxLen
+        fitTo :None or int=     None,   # trims examples if longer than, or pads if shorter, for None fits to min(examples maxLen, safeTrim)
+        safeTrim=               713):   # always trims if longer than, unless fitTo decides more
 
     # tokenize examples and count maxLen
     tokA = []
@@ -249,8 +250,9 @@ def convert_examples_to_features(
         else: tokB.append(None)
         if cLen > maxLen: maxLen = cLen
 
-    # fits tokenized examples
-    if fitTo:
+    newTrim = fitTo if fitTo else safeTrim
+    # trim examples if there are longer
+    if maxLen > newTrim:
         for ix in range(len(tokA)):
             tA = tokA[ix]
             tB = tokB[ix]
@@ -260,13 +262,15 @@ def convert_examples_to_features(
                 bothLen += len(tB) + 1
                 divBy = 2
             # trim
-            if bothLen > fitTo:
+            if bothLen > newTrim:
                 nPads = 3 if divBy==2 else 2
-                singleLen = int((fitTo-nPads)/divBy)
+                singleLen = int((newTrim-nPads)/divBy)
                 tokA[ix] = tA[:singleLen]
                 if tB:
                     tokB[ix] = tB[:singleLen]
-        maxLen = fitTo # new maxLen
+        maxLen = newTrim # new maxLen
+    # force to fit (to pad)
+    elif fitTo and maxLen < fitTo: maxLen = fitTo
 
     uidL = []
     tokL = []
@@ -450,7 +454,7 @@ def extract(
         file=                   None,
         layersIX=               (-1,),
         modelsDir=              '_models',
-        fitSeqLen :None or int= None): # fits tokens (also len of returned features) into given length
+        fitSeqLen :None or int= None): # fits num tokens of text into given length
 
     FLAGS.models_dir = modelsDir
     FLAGS.bert_model_dir = FLAGS.models_dir + '/uncased_L-12_H-768_A-12'
@@ -459,7 +463,6 @@ def extract(
     FLAGS.bert_config_file = FLAGS.bert_model_dir + '/bert_config.json'
     FLAGS.init_checkpoint = FLAGS.bert_model_dir + '/bert_model.ckpt'
     FLAGS.do_lower_case = True
-    FLAGS.max_seq_length = fitSeqLen if fitSeqLen is not None else 64
 
     # prepare input data
     if file: examples = read_examples(file)
@@ -469,7 +472,7 @@ def extract(
         examples=       examples,
         tokenizer=      tokenizer,
         fitTo=          fitSeqLen)
-    if fitSeqLen: FLAGS.max_seq_length = len(features[0].input_ids)
+    FLAGS.max_seq_length = len(features[0].input_ids)
 
     bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file) ## returns config object
 
