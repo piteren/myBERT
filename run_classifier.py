@@ -31,7 +31,7 @@ workingFolder = os.getcwd()
 sys.path.insert(0, workingFolder)                       # working folder
 sys.path.insert(0, workingFolder + '/putilsPackage')    # putilsPackage
 
-from putils.neuralmess.nnBaseElements import loggingSet
+from putils.neuralmess.base_elements import loggingSet
 
 flags = tf.flags
 
