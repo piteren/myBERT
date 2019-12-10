@@ -31,7 +31,7 @@ workingFolder = os.getcwd()
 sys.path.insert(0, workingFolder)                       # working folder
 sys.path.insert(0, workingFolder + '/pUtilsPackage')    # pUtilsPackage
 
-from pUtils.nnTools.nnBaseElements import loggingSet
+from pUtils.nnTools.nnBaseElements import nstarter
 
 flags = tf.flags
 
@@ -986,7 +986,7 @@ def run():
 
 if __name__ == "__main__":
 
-    loggingSet('_log', customName='bertTrain', manageGPUs=True)
+    nstarter('_log', customName='bertTrain', man_dev=True)
 
     FLAGS.data_dir = 'glue_data/MNLI'
     FLAGS.task_name = 'MNLI'
