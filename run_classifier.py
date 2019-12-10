@@ -29,9 +29,9 @@ import tensorflow as tf
 
 workingFolder = os.getcwd()
 sys.path.insert(0, workingFolder)                       # working folder
-sys.path.insert(0, workingFolder + '/pUtilsPackage')    # pUtilsPackage
+sys.path.insert(0, workingFolder + '/putilsPackage')    # putilsPackage
 
-from pUtils.nnTools.nnBaseElements import loggingSet
+from putils.neuralmess.nnBaseElements import loggingSet
 
 flags = tf.flags
 
