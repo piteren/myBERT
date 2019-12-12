@@ -28,10 +28,10 @@ import tokenization
 import tensorflow as tf
 
 workingFolder = os.getcwd()
-sys.path.insert(0, workingFolder)                       # working folder
-sys.path.insert(0, workingFolder + '/pUtilsPackage')    # pUtilsPackage
+sys.path.insert(0, workingFolder)               # working folder
+sys.path.insert(0, workingFolder + '/putils')   # putils
 
-from pUtils.nnTools.nnBaseElements import nstarter
+from putils.neuralmess.base_elements import nstarter
 
 flags = tf.flags
 
