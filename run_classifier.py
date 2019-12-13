@@ -21,14 +21,25 @@ from __future__ import print_function
 import collections
 import csv
 import os
+import sys
 import modeling
 import optimization
 import tokenization
 import tensorflow as tf
 
+workingFolder = os.getcwd()
+sys.path.insert(0, workingFolder)                       # working folder
+sys.path.insert(0, workingFolder + '/putilsPackage')    # putilsPackage
+
+from putils.neuralmess.base_elements import loggingSet
+
 flags = tf.flags
 
 FLAGS = flags.FLAGS
+
+flags.DEFINE_string(
+    "bert_base_dir", None,
+    "base directory of model")
 
 ## Required parameters
 flags.DEFINE_string(
@@ -780,7 +791,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
   return features
 
 
-def main(_):
+def run():
   tf.logging.set_verbosity(tf.logging.INFO)
 
   processors = {
@@ -865,9 +876,10 @@ def main(_):
       predict_batch_size=FLAGS.predict_batch_size)
 
   if FLAGS.do_train:
-    train_file = os.path.join(FLAGS.output_dir, "train.tf_record")
-    file_based_convert_examples_to_features(
-        train_examples, label_list, FLAGS.max_seq_length, tokenizer, train_file)
+    train_file = os.path.join(FLAGS.output_dir, 'train.tf_record')
+    if not os.path.isfile(train_file):
+        print(' > preparing train.tf_record file...')
+        file_based_convert_examples_to_features(train_examples, label_list, FLAGS.max_seq_length, tokenizer, train_file)
     tf.logging.info("***** Running training *****")
     tf.logging.info("  Num examples = %d", len(train_examples))
     tf.logging.info("  Batch size = %d", FLAGS.train_batch_size)
@@ -973,9 +985,23 @@ def main(_):
 
 
 if __name__ == "__main__":
-  flags.mark_flag_as_required("data_dir")
-  flags.mark_flag_as_required("task_name")
-  flags.mark_flag_as_required("vocab_file")
-  flags.mark_flag_as_required("bert_config_file")
-  flags.mark_flag_as_required("output_dir")
-  tf.app.run()
+
+    loggingSet('_log', customName='bertTrain', manageGPUs=True)
+
+    FLAGS.data_dir = 'glue_data/MNLI'
+    FLAGS.task_name = 'MNLI'
+
+    FLAGS.do_train = False#True
+    FLAGS.do_eval = True
+
+    FLAGS.bert_base_dir = '_models/uncased_L-12_H-768_A-12'
+    FLAGS.vocab_file = FLAGS.bert_base_dir + '/vocab.txt'
+    FLAGS.bert_config_file = FLAGS.bert_base_dir + '/bert_config.json'
+    FLAGS.init_checkpoint = FLAGS.bert_base_dir + '/bert_model.ckpt'
+    FLAGS.max_seq_length = 32#128
+    FLAGS.train_batch_size = 32
+    FLAGS.learning_rate = 2e-5
+    FLAGS.num_train_epochs = 3.0
+
+    FLAGS.output_dir = 'tmp/mnli'
+    run()

@@ -128,14 +128,15 @@ class BertModel(object):
   ```
   """
 
-  def __init__(self,
-               config,
-               is_training,
-               input_ids,
-               input_mask=None,
-               token_type_ids=None,
-               use_one_hot_embeddings=False,
-               scope=None):
+  def __init__(
+          self,
+          config,
+          is_training,                      # when True (for training) applies dropout
+          input_ids,                        # tensor (int32)
+          input_mask=               None,   # tensor (int32) optional, for None ones tensor will be used
+          token_type_ids=           None,   # tensor (int32) optional, for None zeros tensor will be used
+          use_one_hot_embeddings=   False,  # bool
+          scope=                    None):
     """Constructor for BertModel.
 
     Args:
