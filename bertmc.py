@@ -14,6 +14,7 @@ class BertMC:
     def __init__(
             self,
             bert_config,
+            device=                     '/device:GPU:0',
             checkpoint=                 None,
             is_training=                False,
             use_one_hot_embeddings=     False):
@@ -22,18 +23,20 @@ class BertMC:
 
         with self.graph.as_default():
 
-            self.features = {
-                'input_ids':        tf.placeholder(shape=[None,None], dtype=tf.int32),
-                'input_mask':       tf.placeholder(shape=[None,None], dtype=tf.int32),
-                'input_type_ids':   tf.placeholder(shape=[None,None], dtype=tf.int32)}
+            with tf.device(device):
 
-            self.model = BertModel(
-                config=                 bert_config,
-                is_training=            is_training,
-                input_ids=              self.features['input_ids'],
-                input_mask=             self.features['input_mask'],
-                token_type_ids=         self.features['input_type_ids'],
-                use_one_hot_embeddings= use_one_hot_embeddings)
+                self.features = {
+                    'input_ids':        tf.placeholder(shape=[None,None], dtype=tf.int32),
+                    'input_mask':       tf.placeholder(shape=[None,None], dtype=tf.int32),
+                    'input_type_ids':   tf.placeholder(shape=[None,None], dtype=tf.int32)}
+
+                self.model = BertModel(
+                    config=                 bert_config,
+                    is_training=            is_training,
+                    input_ids=              self.features['input_ids'],
+                    input_mask=             self.features['input_mask'],
+                    token_type_ids=         self.features['input_type_ids'],
+                    use_one_hot_embeddings= use_one_hot_embeddings)
 
             self.tvars = tf.trainable_variables()
 
@@ -51,6 +54,13 @@ if __name__ == "__main__":
     bert_config_file = model_dir + '/bert_config.json'
     checkpoint = model_dir + '/bert_model.ckpt'
     bert_config = BertConfig.from_json_file(bert_config_file)
-    model = BertMC(
+
+    modelA = BertMC(
+        bert_config=    bert_config,
+        checkpoint=     checkpoint)
+    modelB = BertMC(
+        bert_config=    bert_config,
+        checkpoint=     checkpoint)
+    modelC = BertMC(
         bert_config=    bert_config,
         checkpoint=     checkpoint)
