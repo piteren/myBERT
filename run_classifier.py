@@ -986,7 +986,7 @@ def run():
 
 if __name__ == "__main__":
 
-    nstarter('_log', customName='bertTrain', man_dev=True)
+    nstarter('_log', customName='bertTrain', manage_dev=True)
 
     FLAGS.data_dir = 'glue_data/MNLI'
     FLAGS.task_name = 'MNLI'
