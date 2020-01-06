@@ -31,7 +31,7 @@ workingFolder = os.getcwd()
 sys.path.insert(0, workingFolder)               # working folder
 sys.path.insert(0, workingFolder + '/putils')   # putils
 
-from putils.neuralmess.base_elements import nstarter
+from putils.neuralmess.dev_manager import nestarter
 
 flags = tf.flags
 
@@ -986,7 +986,7 @@ def run():
 
 if __name__ == "__main__":
 
-    nstarter('_log', customName='bertTrain', manage_dev=True)
+    nestarter('_log', customName='bertTrain', manage_dev=True)
 
     FLAGS.data_dir = 'glue_data/MNLI'
     FLAGS.task_name = 'MNLI'
