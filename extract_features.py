@@ -459,8 +459,8 @@ def extract(
         fitSeqLen :None or int= None): # fits num tokens of text into given length
 
     FLAGS.models_dir = modelsDir
-    FLAGS.bert_model_dir = FLAGS.models_dir
-    FLAGS.bert_model_dir += bert_model if bert_model else '/uncased_L-12_H-768_A-12'
+    FLAGS.bert_model_dir = FLAGS.models_dir + '/'
+    FLAGS.bert_model_dir += bert_model if bert_model else 'uncased_L-12_H-768_A-12'
     FLAGS.vocab_file = FLAGS.bert_model_dir + '/vocab.txt'
     FLAGS.bert_config_file = FLAGS.bert_model_dir + '/bert_config.json'
     FLAGS.init_checkpoint = FLAGS.bert_model_dir + '/bert_model.ckpt'
@@ -520,7 +520,7 @@ if __name__ == "__main__":
     results = extract(
         textA=      textA,
         textB=      textB,
-        bert_model= '/wwm_uncased_L-24_H-1024_A-16'
+        bert_model= 'wwm_uncased_L-24_H-1024_A-16'
     )
 
     print(len(results))
