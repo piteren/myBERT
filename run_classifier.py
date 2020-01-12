@@ -29,7 +29,6 @@ import tensorflow as tf
 
 workingFolder = os.getcwd()
 sys.path.insert(0, workingFolder)               # working folder
-sys.path.insert(0, workingFolder + '/putils')   # putils
 
 from putils.neuralmess.dev_manager import nestarter
 

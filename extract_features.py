@@ -18,9 +18,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import codecs
-import collections
-import json
+#import codecs
+#import collections
+#import json
 import os
 import re
 
@@ -284,6 +284,7 @@ def convert_examples_to_features(
             tokens +=                   tokB[ix]            + ['[SEP]']
             input_type_ids +=           [1] * len(tokB[ix]) + [1]
 
+        print(tokens)
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
         input_mask = [1] * len(input_ids)
 
@@ -452,13 +453,14 @@ def extract(
         textA=                  None,
         textB=                  None,
         file=                   None,
+        bert_model=             None,
         layersIX=               (-1,),
         modelsDir=              '_models',
         fitSeqLen :None or int= None): # fits num tokens of text into given length
 
     FLAGS.models_dir = modelsDir
-    FLAGS.bert_model_dir = FLAGS.models_dir + '/uncased_L-12_H-768_A-12'
-    #FLAGS.bert_model_dir = FLAGS.models_dir + '/wwm_uncased_L-24_H-1024_A-16'
+    FLAGS.bert_model_dir = FLAGS.models_dir
+    FLAGS.bert_model_dir += bert_model if bert_model else '/uncased_L-12_H-768_A-12'
     FLAGS.vocab_file = FLAGS.bert_model_dir + '/vocab.txt'
     FLAGS.bert_config_file = FLAGS.bert_model_dir + '/bert_config.json'
     FLAGS.init_checkpoint = FLAGS.bert_model_dir + '/bert_model.ckpt'
@@ -518,6 +520,7 @@ if __name__ == "__main__":
     results = extract(
         textA=      textA,
         textB=      textB,
+        bert_model= '/wwm_uncased_L-24_H-1024_A-16'
     )
 
     print(len(results))
