@@ -455,6 +455,7 @@ def extract(
         bert_model=             None,
         layersIX=               (-1,),
         modelsDir=              '_models',
+        return_simple=          True,
         fitSeqLen :None or int= None): # fits num tokens of text into given length
 
     FLAGS.models_dir = modelsDir
@@ -506,7 +507,10 @@ def extract(
         input_fn=               input_fn,
         yield_single_examples=  True)
 
-    return [result for result in resGO]
+    results = [result for result in resGO]
+    if return_simple:
+        pass #TODO: concat layers and return
+    return results
 
 
 if __name__ == "__main__":
