@@ -795,7 +795,7 @@ def write_predictions(all_examples, all_features, all_results, n_best_size,
             continue
           if end_index not in feature.token_to_orig_map:
             continue
-          if not feature.token_is_max_context.get_rgs_sample(start_index, False):
+          if not feature.token_is_max_context.get_sample(start_index, False):
             continue
           if end_index < start_index:
             continue

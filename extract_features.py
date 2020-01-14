@@ -284,7 +284,6 @@ def convert_examples_to_features(
             tokens +=                   tokB[ix]            + ['[SEP]']
             input_type_ids +=           [1] * len(tokB[ix]) + [1]
 
-        print(tokens)
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
         input_mask = [1] * len(input_ids)
 
