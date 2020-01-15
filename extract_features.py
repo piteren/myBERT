@@ -21,6 +21,7 @@ from __future__ import print_function
 #import codecs
 #import collections
 #import json
+import numpy as np
 import os
 import re
 
@@ -449,16 +450,16 @@ def getExamples(
 
 
 def extract(
-        textA=                  None,
-        textB=                  None,
-        file=                   None,
-        bert_model=             None,
-        layersIX=               (-1,),
-        modelsDir=              '_models',
-        return_simple=          True,
-        fitSeqLen :None or int= None): # fits num tokens of text into given length
+        textA=                      None,
+        textB=                      None,
+        file=                       None,
+        bert_model=                 None,
+        layers_IX=                  (-1,),
+        models_dir=                 '_models',
+        fit_seq_len : None or int=  None,  # fits num tokens of text into given length
+        verb=                       1):
 
-    FLAGS.models_dir = modelsDir
+    FLAGS.models_dir = models_dir
     FLAGS.bert_model_dir = FLAGS.models_dir + '/'
     FLAGS.bert_model_dir += bert_model if bert_model else 'uncased_L-12_H-768_A-12'
     FLAGS.vocab_file = FLAGS.bert_model_dir + '/vocab.txt'
@@ -473,7 +474,7 @@ def extract(
     features = convert_examples_to_features(
         examples=       examples,
         tokenizer=      tokenizer,
-        fitTo=          fitSeqLen)
+        fitTo=          fit_seq_len)
     FLAGS.max_seq_length = len(features[0].input_ids)
 
     bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file) ## returns config object
@@ -488,7 +489,7 @@ def extract(
     model_fn = model_fn_builder(
         bert_config=            bert_config,
         init_checkpoint=        FLAGS.init_checkpoint,
-        layer_indexes=          layersIX,
+        layer_indexes=          layers_IX,
         use_tpu=                FLAGS.use_tpu,
         use_one_hot_embeddings= FLAGS.use_one_hot_embeddings) # by default False
 
@@ -508,8 +509,16 @@ def extract(
         yield_single_examples=  True)
 
     results = [result for result in resGO]
-    if return_simple:
-        pass #TODO: concat layers and return
+    layKeys = [key for key in list(results[0].keys()) if 'layer' in key]
+    if verb>0: print('extracted: %d results, shape: %s, keys: %s'%(len(results),results[0]['layer_output_0'].shape,list(results[0].keys())))
+
+    results_lay = {l: [results[r][layKeys[l]] for r in range(len(results))] for l in range(len(layKeys))} # {layerIX: list of results(np)}
+
+    results = results_lay[0]
+    if len(layKeys)>1:
+        if verb > 0: print(' > concatenating layers outputs')
+        results = [np.concatenate([results_lay[lix][six] for lix in range(len(layKeys))],axis=-1) for six in range(len(results_lay[0]))]
+
     return results
 
 
@@ -523,10 +532,6 @@ if __name__ == "__main__":
     results = extract(
         textA=      textA,
         textB=      textB,
-        bert_model= 'wwm_uncased_L-24_H-1024_A-16'
+        bert_model= 'wwm_uncased_L-24_H-1024_A-16',
+        #layers_IX=  (-1)
     )
-
-    print(len(results))
-    print(results[0].keys())
-    layKey = [key for key in list(results[0].keys()) if 'layer' in key][0]
-    print(results[0][layKey].shape)
