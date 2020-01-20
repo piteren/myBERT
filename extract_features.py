@@ -459,6 +459,7 @@ def extract(
         fit_seq_len : None or int=  None,  # fits num tokens of text into given length
         verb=                       1):
 
+    # update flags
     FLAGS.models_dir = models_dir
     FLAGS.bert_model_dir = FLAGS.models_dir + '/'
     FLAGS.bert_model_dir += bert_model if bert_model else 'uncased_L-12_H-768_A-12'
@@ -477,7 +478,7 @@ def extract(
         fitTo=          fit_seq_len)
     FLAGS.max_seq_length = len(features[0].input_ids)
 
-    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file) ## returns config object
+    bert_config = modeling.BertConfig.from_json_file(FLAGS.bert_config_file) # returns config object
 
     is_per_host = tf.contrib.tpu.InputPipelineConfig.PER_HOST_V2
     run_config = tf.contrib.tpu.RunConfig(
