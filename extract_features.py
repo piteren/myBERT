@@ -577,7 +577,7 @@ def extract_with_model(
             batch = {key: [] for key in batch_keys}
     if len(batch['input_ids']): batches.append(batch)
 
-    results_lay = {ix: [] for ix in layers_IX} # list of results for every layer_IX
+    results_lay = {ix: [] for ix in layers_IX} # list of results (np.arrs) for every layer_IX
     fetch = [model.all_encoder_layers[ix] for ix in layers_IX] # list of layer_output tensors
     for batch in batches:
         feed = {model.features[key]: batch[key] for key in batch_keys}
@@ -585,20 +585,14 @@ def extract_with_model(
         for ix in range(len(out)):
             results_lay[layers_IX[ix]].append(out[ix])
 
+    for lay in results_lay:
+        results_lay[lay] = np.concatenate(results_lay[lay],axis=0) # concatenate np.arrs of every layer into single np.arr
+        n = results_lay[lay].shape[0] # number of samples
+        results_lay[lay] = [np.squeeze(el) for el in  np.split(results_lay[lay],n,axis=0)] # split samples
 
-    """
-    results = [result for result in resGO]
-    layKeys = [key for key in list(results[0].keys()) if 'layer' in key]
-    if verb>0: print('extracted: %d results, shape: %s, keys: %s'%(len(results),results[0]['layer_output_0'].shape,list(results[0].keys())))
-
-    results_lay = {l: [results[r][layKeys[l]] for r in range(len(results))] for l in range(len(layKeys))} # {layerIX: list of results(np)}
-
-    results = results_lay[0]
-    if len(layKeys)>1:
-        if verb > 0: print(' > concatenating layers outputs')
-        results = [np.concatenate([results_lay[lix][six] for lix in range(len(layKeys))],axis=-1) for six in range(len(results_lay[0]))]
-    """
-    return results_lay
+    results = [np.concatenate([results_lay[lay][ix] for lay in layers_IX], axis=-1) for ix in range(len(results_lay[layers_IX[0]]))] # concatenate layers along feature dim
+    if verb>0: print('extracted %d samples of shape %s'%(len(results), results[0].shape))
+    return results
 
 
 if __name__ == "__main__":
@@ -626,6 +620,5 @@ if __name__ == "__main__":
         layers_IX=  (-1,-2,-3),
     )
     print(len(results))
-    print(len(results[-1]))
-    print(results[-1][0].shape)
-    print(results[-1][1].shape)
+    print(results[0].shape)
+
