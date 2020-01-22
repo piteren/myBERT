@@ -9,20 +9,23 @@ import tensorflow as tf
 from modeling import BertModel, get_assignment_map_from_checkpoint, BertConfig
 
 # Bert Model Class
-class BertMC:
+class BertMC(BertModel):
 
     def __init__(
             self,
-            bert_config,
-            device=                     '/device:GPU:0',
-            checkpoint=                 None,
+            model_name :str,
+            models_dir=                 '_models',
+            device :int=                0,          # GPU device id
             is_training=                False,
             use_one_hot_embeddings=     False):
 
-        self.graph = tf.Graph()
+        self.model_name = model_name
+        self.models_dir = models_dir
 
+        self.graph = tf.Graph()
         with self.graph.as_default():
 
+            device = '/device:CPU:0' if device is None else '/device:GPU:%d' % device
             with tf.device(device):
 
                 self.features = {
@@ -30,7 +33,10 @@ class BertMC:
                     'input_mask':       tf.placeholder(shape=[None,None], dtype=tf.int32),
                     'input_type_ids':   tf.placeholder(shape=[None,None], dtype=tf.int32)}
 
-                self.model = BertModel(
+                bert_config_file = self.models_dir + '/' + self.model_name + '/bert_config.json'
+                bert_config = BertConfig.from_json_file(bert_config_file)
+
+                super(BertMC, self).__init__(
                     config=                 bert_config,
                     is_training=            is_training,
                     input_ids=              self.features['input_ids'],
@@ -40,27 +46,15 @@ class BertMC:
 
             self.tvars = tf.trainable_variables()
 
-        if checkpoint: self.init_from_ckpt(checkpoint)
-
-    def init_from_ckpt(self, checkpoint):
-        with self.graph.as_default():
+            checkpoint = self.models_dir + '/' + self.model_name + '/bert_model.ckpt'
             (assignment_map, initialized_variable_names) = get_assignment_map_from_checkpoint(self.tvars, checkpoint)
             tf.train.init_from_checkpoint(checkpoint, assignment_map)
+            init = tf.global_variables_initializer()
+
+        self.sess = tf.Session(graph=self.graph, config=tf.ConfigProto(allow_soft_placement=True))
+        self.sess.run(init)
 
 
 if __name__ == "__main__":
 
-    model_dir = '_models/uncased_L-12_H-768_A-12'
-    bert_config_file = model_dir + '/bert_config.json'
-    checkpoint = model_dir + '/bert_model.ckpt'
-    bert_config = BertConfig.from_json_file(bert_config_file)
-
-    modelA = BertMC(
-        bert_config=    bert_config,
-        checkpoint=     checkpoint)
-    modelB = BertMC(
-        bert_config=    bert_config,
-        checkpoint=     checkpoint)
-    modelC = BertMC(
-        bert_config=    bert_config,
-        checkpoint=     checkpoint)
+    modelA = BertMC(model_name='uncased_L-12_H-768_A-12')

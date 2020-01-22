@@ -27,6 +27,8 @@ import re
 
 import modeling
 import tokenization
+from bertmc import BertMC
+
 import tensorflow as tf
 
 flags = tf.flags
@@ -251,26 +253,36 @@ def convert_examples_to_features(
         else: tokB.append(None)
         if cLen > maxLen: maxLen = cLen
 
-    newTrim = fitTo if fitTo else safeTrim
     # trim examples if there are longer
-    if maxLen > newTrim:
+    new_trim = fitTo if fitTo else safeTrim
+    if maxLen > new_trim:
         for ix in range(len(tokA)):
             tA = tokA[ix]
             tB = tokB[ix]
-            bothLen = len(tA) + 2
-            divBy = 1
-            if tB:
-                bothLen += len(tB) + 1
-                divBy = 2
-            # trim
-            if bothLen > newTrim:
-                nPads = 3 if divBy==2 else 2
-                singleLen = int((newTrim-nPads)/divBy)
-                tokA[ix] = tA[:singleLen]
-                if tB:
-                    tokB[ix] = tB[:singleLen]
-        maxLen = newTrim # new maxLen
-    # force to fit (to pad)
+
+            len_A = len(tA)
+            len_B = len(tB) if tB else 0
+            both_len = 1+len_A+1
+            if len_B: both_len += len_B+1
+
+            if both_len > new_trim:
+                len_A_trg = new_trim-2
+                len_B_trg = 0
+                if len_B:
+                    half = int((new_trim-3)/2)
+                    len_A_trg = half
+                    len_B_trg = half
+                    if len_B < half: # B actually shorter
+                        len_A_trg += half-len_B # add to A
+                        len_B_trg = len_B
+                    if len_A < half: # A actually shorter
+                        len_A_trg = len_A
+                        len_B_trg += half-len_A # add to B
+                tokA[ix] = tA[:len_A_trg]
+                if tB: tokB[ix] = tB[:len_B_trg]
+
+        maxLen = new_trim # new maxLen
+    # force to fit (padding)
     elif fitTo and maxLen < fitTo: maxLen = fitTo
 
     uidL = []
@@ -522,17 +534,98 @@ def extract(
 
     return results
 
+def extract_with_model(
+        model :BertMC,
+        textA=                      None,
+        textB=                      None,
+        file=                       None,
+        batch_size=                 128,
+        layers_IX=                  (-1,),
+        fit_seq_len : None or int=  None,  # fits num tokens of text into given length
+        verb=                       1):
+
+    # update flags
+    FLAGS.models_dir = model.models_dir
+    FLAGS.bert_model_dir = FLAGS.models_dir + '/'
+    FLAGS.bert_model_dir += model.model_name
+    FLAGS.vocab_file = FLAGS.bert_model_dir + '/vocab.txt'
+    FLAGS.bert_config_file = FLAGS.bert_model_dir + '/bert_config.json'
+    FLAGS.init_checkpoint = FLAGS.bert_model_dir + '/bert_model.ckpt'
+    FLAGS.do_lower_case = True
+
+    # prepare input data
+    if file: examples = read_examples(file)
+    else: examples = getExamples(textA,textB)
+    tokenizer = tokenization.FullTokenizer(vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
+    features = convert_examples_to_features(
+        examples=       examples,
+        tokenizer=      tokenizer,
+        fitTo=          fit_seq_len)
+    FLAGS.max_seq_length = len(features[0].input_ids)
+
+    # pack into batches
+    batch_keys = ['input_ids', 'input_mask', 'input_type_ids']
+    batches = []
+    batch = {key: [] for key in batch_keys}
+    for feat in features:
+        batch['input_ids'].append(feat.input_ids)
+        batch['input_mask'].append(feat.input_mask)
+        #batch['input_type_ids'].append(feat.segment_ids)
+        batch['input_type_ids'].append(feat.input_type_ids)
+        if len(batch['input_ids']) == batch_size:
+            batches.append(batch)
+            batch = {key: [] for key in batch_keys}
+    if len(batch['input_ids']): batches.append(batch)
+
+    results_lay = {ix: [] for ix in layers_IX} # list of results for every layer_IX
+    fetch = [model.all_encoder_layers[ix] for ix in layers_IX] # list of layer_output tensors
+    for batch in batches:
+        feed = {model.features[key]: batch[key] for key in batch_keys}
+        out = model.sess.run(fetch, feed)
+        for ix in range(len(out)):
+            results_lay[layers_IX[ix]].append(out[ix])
+
+
+    """
+    results = [result for result in resGO]
+    layKeys = [key for key in list(results[0].keys()) if 'layer' in key]
+    if verb>0: print('extracted: %d results, shape: %s, keys: %s'%(len(results),results[0]['layer_output_0'].shape,list(results[0].keys())))
+
+    results_lay = {l: [results[r][layKeys[l]] for r in range(len(results))] for l in range(len(layKeys))} # {layerIX: list of results(np)}
+
+    results = results_lay[0]
+    if len(layKeys)>1:
+        if verb > 0: print(' > concatenating layers outputs')
+        results = [np.concatenate([results_lay[lix][six] for lix in range(len(layKeys))],axis=-1) for six in range(len(results_lay[0]))]
+    """
+    return results_lay
+
 
 if __name__ == "__main__":
 
     tf.logging.set_verbosity(tf.logging.ERROR)
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
-    textA = ['It is my name.','My competence.']
-    textB = ['What is your name, my lord?.','My precious lord.']
+    textA = ['It is my name.','My competence.','It is my name.','My competence.','It is my name.','My competence.',]
+    textB = ['What is your name, my lord?.','My precious lord.','What is your name, my lord?.','My precious lord.','What is your name, my lord?.','My precious lord.',]
+
+    """
     results = extract(
         textA=      textA,
         textB=      textB,
         bert_model= 'wwm_uncased_L-24_H-1024_A-16',
-        #layers_IX=  (-1)
+        #layers_IX=  (-1,-2,-3),
     )
+    """
+
+    results = extract_with_model(
+        model=      BertMC('wwm_uncased_L-24_H-1024_A-16'),
+        textA=      textA,
+        textB=      textB,
+        batch_size= 4,
+        layers_IX=  (-1,-2,-3),
+    )
+    print(len(results))
+    print(len(results[-1]))
+    print(results[-1][0].shape)
+    print(results[-1][1].shape)
