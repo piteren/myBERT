@@ -534,66 +534,6 @@ def extract(
 
     return results
 
-def extract_with_model(
-        model :BertMC,
-        textA=                      None,
-        textB=                      None,
-        file=                       None,
-        batch_size=                 128,
-        layers_IX=                  (-1,),
-        fit_seq_len : None or int=  None,  # fits num tokens of text into given length
-        verb=                       1):
-
-    # update flags
-    FLAGS.models_dir = model.models_dir
-    FLAGS.bert_model_dir = FLAGS.models_dir + '/'
-    FLAGS.bert_model_dir += model.model_name
-    FLAGS.vocab_file = FLAGS.bert_model_dir + '/vocab.txt'
-    FLAGS.bert_config_file = FLAGS.bert_model_dir + '/bert_config.json'
-    FLAGS.init_checkpoint = FLAGS.bert_model_dir + '/bert_model.ckpt'
-    FLAGS.do_lower_case = True
-
-    # prepare input data
-    if file: examples = read_examples(file)
-    else: examples = getExamples(textA,textB)
-    tokenizer = tokenization.FullTokenizer(vocab_file=FLAGS.vocab_file, do_lower_case=FLAGS.do_lower_case)
-    features = convert_examples_to_features(
-        examples=       examples,
-        tokenizer=      tokenizer,
-        fitTo=          fit_seq_len)
-    FLAGS.max_seq_length = len(features[0].input_ids)
-
-    # pack into batches
-    batch_keys = ['input_ids', 'input_mask', 'input_type_ids']
-    batches = []
-    batch = {key: [] for key in batch_keys}
-    for feat in features:
-        batch['input_ids'].append(feat.input_ids)
-        batch['input_mask'].append(feat.input_mask)
-        #batch['input_type_ids'].append(feat.segment_ids)
-        batch['input_type_ids'].append(feat.input_type_ids)
-        if len(batch['input_ids']) == batch_size:
-            batches.append(batch)
-            batch = {key: [] for key in batch_keys}
-    if len(batch['input_ids']): batches.append(batch)
-
-    results_lay = {ix: [] for ix in layers_IX} # list of results (np.arrs) for every layer_IX
-    fetch = [model.all_encoder_layers[ix] for ix in layers_IX] # list of layer_output tensors
-    for batch in batches:
-        feed = {model.features[key]: batch[key] for key in batch_keys}
-        out = model.sess.run(fetch, feed)
-        for ix in range(len(out)):
-            results_lay[layers_IX[ix]].append(out[ix])
-
-    for lay in results_lay:
-        results_lay[lay] = np.concatenate(results_lay[lay],axis=0) # concatenate np.arrs of every layer into single np.arr
-        n = results_lay[lay].shape[0] # number of samples
-        results_lay[lay] = [np.squeeze(el) for el in  np.split(results_lay[lay],n,axis=0)] # split samples
-
-    results = [np.concatenate([results_lay[lay][ix] for lay in layers_IX], axis=-1) for ix in range(len(results_lay[layers_IX[0]]))] # concatenate layers along feature dim
-    if verb>0: print('extracted %d samples of shape %s'%(len(results), results[0].shape))
-    return results
-
 
 if __name__ == "__main__":
 
@@ -603,21 +543,11 @@ if __name__ == "__main__":
     textA = ['It is my name.','My competence.','It is my name.','My competence.','It is my name.','My competence.',]
     textB = ['What is your name, my lord?.','My precious lord.','What is your name, my lord?.','My precious lord.','What is your name, my lord?.','My precious lord.',]
 
-    """
     results = extract(
         textA=      textA,
         textB=      textB,
         bert_model= 'wwm_uncased_L-24_H-1024_A-16',
         #layers_IX=  (-1,-2,-3),
-    )
-    """
-
-    results = extract_with_model(
-        model=      BertMC('wwm_uncased_L-24_H-1024_A-16'),
-        textA=      textA,
-        textB=      textB,
-        batch_size= 4,
-        layers_IX=  (-1,-2,-3),
     )
     print(len(results))
     print(results[0].shape)

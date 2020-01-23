@@ -17,15 +17,18 @@ class BertMC(BertModel):
             models_dir=                 '_models',
             device :int=                0,          # GPU device id
             is_training=                False,
-            use_one_hot_embeddings=     False):
+            use_one_hot_embeddings=     False,
+            verb=                       0):
 
         self.model_name = model_name
         self.models_dir = models_dir
+        if verb>0: print('\n*** BertMC *** initializing (folder: %s, model: %s)'%(self.models_dir, self.model_name))
 
         self.graph = tf.Graph()
         with self.graph.as_default():
 
             device = '/device:CPU:0' if device is None else '/device:GPU:%d' % device
+            if verb>1: print(' > building graph on %s'%device)
             with tf.device(device):
 
                 self.features = {
@@ -33,11 +36,8 @@ class BertMC(BertModel):
                     'input_mask':       tf.placeholder(shape=[None,None], dtype=tf.int32),
                     'input_type_ids':   tf.placeholder(shape=[None,None], dtype=tf.int32)}
 
-                bert_config_file = self.models_dir + '/' + self.model_name + '/bert_config.json'
-                bert_config = BertConfig.from_json_file(bert_config_file)
-
                 super(BertMC, self).__init__(
-                    config=                 bert_config,
+                    config=                 BertConfig.from_json_file(self.models_dir + '/' + self.model_name + '/bert_config.json'),
                     is_training=            is_training,
                     input_ids=              self.features['input_ids'],
                     input_mask=             self.features['input_mask'],
