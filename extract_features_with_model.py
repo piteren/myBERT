@@ -2,14 +2,11 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-#import codecs
-#import collections
-#import json
+
 import numpy as np
 import os
-import re
+from tqdm import tqdm
 
-import modeling
 import tokenization
 from bertmc import BertMC
 
@@ -157,6 +154,8 @@ def extract_with_model(
         do_lower_case=              True,
         verb=                       1):
 
+    if verb>0: print('*** extract_with_model *** initializing...')
+
     model_FP = model.models_dir + '/' + model.model_name
     vocab_file = model_FP + '/vocab.txt'
 
@@ -167,7 +166,7 @@ def extract_with_model(
         examples=       examples,
         tokenizer=      tokenizer,
         fitTo=          fit_seq_len)
-    # TODO: #FLAGS.max_seq_length = len(features[0].input_ids)
+    if verb>0: print(' > got %d samples to extract (length: %d tokens) '%(len(features),len(features[0].input_ids)))
 
     # pack into batches
     batch_keys = ['input_ids', 'input_mask', 'input_type_ids']
@@ -178,13 +177,16 @@ def extract_with_model(
         batch['input_mask'].append(feat.input_mask)
         #batch['input_type_ids'].append(feat.segment_ids)
         batch['input_type_ids'].append(feat.input_type_ids)
-        if len(batch['input_ids']) == batch_size:
+        if len(batch['input_ids'])==batch_size:
             batches.append(batch)
             batch = {key: [] for key in batch_keys}
     if len(batch['input_ids']): batches.append(batch)
 
+    if verb>0: print(' > starting extraction with %d batches of size %d...'%(len(batches),batch_size))
+
     results_lay = {ix: [] for ix in layers_IX} # list of results (np.arrs) for every layer_IX
     fetch = [model.all_encoder_layers[ix] for ix in layers_IX] # list of layer_output tensors
+    if verb>0: batches = tqdm(batches)
     for batch in batches:
         feed = {model.features[key]: batch[key] for key in batch_keys}
         out = model.sess.run(fetch, feed)
@@ -197,7 +199,7 @@ def extract_with_model(
         results_lay[lay] = [np.squeeze(el) for el in  np.split(results_lay[lay],n,axis=0)] # split samples
 
     results = [np.concatenate([results_lay[lay][ix] for lay in layers_IX], axis=-1) for ix in range(len(results_lay[layers_IX[0]]))] # concatenate layers along feature dim
-    if verb>0: print('extracted %d samples of shape %s'%(len(results), results[0].shape))
+    if verb>0: print(' > extracted %d samples of shape %s'%(len(results), results[0].shape))
     return results
 
 
