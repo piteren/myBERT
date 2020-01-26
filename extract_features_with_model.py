@@ -152,6 +152,7 @@ def extract_with_model(
         layers_IX=                  (-1,),
         fit_seq_len : None or int=  None,  # fits num tokens of text into given length
         do_lower_case=              True,
+        force16bit=                 False,
         verb=                       1):
 
     if verb>0: print('*** extract_with_model *** initializing...')
@@ -198,7 +199,9 @@ def extract_with_model(
         n = results_lay[lay].shape[0] # number of samples
         results_lay[lay] = [np.squeeze(el) for el in  np.split(results_lay[lay],n,axis=0)] # split samples
 
-    results = [np.concatenate([results_lay[lay][ix] for lay in layers_IX], axis=-1) for ix in range(len(results_lay[layers_IX[0]]))] # concatenate layers along feature dim
+    npt = np.float16 if force16bit else np.float32
+    if force16bit: print('forced to save extract as %s'%npt)
+    results = [np.concatenate([results_lay[lay][ix] for lay in layers_IX], axis=-1).astype(dtype=npt) for ix in range(len(results_lay[layers_IX[0]]))] # concatenate layers along feature dim
     if verb>0: print(' > extracted %d samples of shape %s'%(len(results), results[0].shape))
     return results
 
