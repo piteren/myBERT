@@ -200,7 +200,7 @@ def extract_with_model(
         results_lay[lay] = [np.squeeze(el) for el in  np.split(results_lay[lay],n,axis=0)] # split samples
 
     npt = np.float16 if force16bit else np.float32
-    if force16bit: print('forced to save extract as %s'%npt)
+    if force16bit: print('forced to export extract as %s'%npt)
     results = [np.concatenate([results_lay[lay][ix] for lay in layers_IX], axis=-1).astype(dtype=npt) for ix in range(len(results_lay[layers_IX[0]]))] # concatenate layers along feature dim
     if verb>0: print(' > extracted %d samples of shape %s'%(len(results), results[0].shape))
     return results
