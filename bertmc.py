@@ -6,7 +6,7 @@
 
 import tensorflow as tf
 
-from putils.neuralmess.dev_manager import manage_dev
+from putils.neuralmess.dev_manager import get_dev_str
 
 from modeling import BertModel, get_assignment_map_from_checkpoint, BertConfig
 
@@ -29,7 +29,7 @@ class BertMC(BertModel):
         self.graph = tf.Graph()
         with self.graph.as_default():
 
-            device_str = manage_dev(dev_id=dev_id, verb=verb)['devices_strL'][0]
+            device_str = get_dev_str(dev_id=dev_id, verb=verb)['devices_strL'][0]
             if verb>1: print(' > building graph on cuda: %s' % device_str)
             with tf.device(device_str):
 
