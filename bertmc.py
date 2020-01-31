@@ -6,6 +6,8 @@
 
 import tensorflow as tf
 
+from putils.neuralmess.dev_manager import manage_dev
+
 from modeling import BertModel, get_assignment_map_from_checkpoint, BertConfig
 
 # Bert Model Class
@@ -15,7 +17,7 @@ class BertMC(BertModel):
             self,
             model_name :str,
             models_dir=                 '_models',
-            device :int=                0,          # GPU device id
+            dev_id :int=                0,
             is_training=                False,
             use_one_hot_embeddings=     False,
             verb=                       0):
@@ -27,9 +29,9 @@ class BertMC(BertModel):
         self.graph = tf.Graph()
         with self.graph.as_default():
 
-            device = '/device:CPU:0' if device is None else '/device:GPU:%d' % device
-            if verb>1: print(' > building graph on %s'%device)
-            with tf.device(device):
+            device_str = manage_dev(dev_id=dev_id, verb=verb)['devices_strL'][0]
+            if verb>1: print(' > building graph on cuda: %s' % device_str)
+            with tf.device(device_str):
 
                 self.features = {
                     'input_ids':        tf.placeholder(shape=[None,None], dtype=tf.int32),
